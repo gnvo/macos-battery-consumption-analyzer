@@ -105,32 +105,41 @@ def get_data_matrix(events):
         matrix[i, 0] = dp.elapsed_hours()
         matrix[i, 1] = dp.diff_charge()
         matrix[i, 2] = dp.estimated_hours()
-    return matrix
+    return discharge_periods, matrix
 
-def plot_data(events):
-    matrix = get_data_matrix(events)
+def plot_data(discharge_periods, matrix):
+    datetimes = np.asarray(list(map(lambda dp: dp.start.timestamp, discharge_periods))) #TODO:remove this hacky line!!
     total_elapsed_hours = np.sum(matrix[:,0])
     weights = matrix[:,0]/total_elapsed_hours
     weighted_mean_estimated_hours = np.sum(matrix[:,2] * weights)
     mean_estimated_hours = np.mean(matrix[:,2])
-    plt.scatter(matrix[:,2], matrix[:,1], s=3000*weights, edgecolors='none')
-    plt.axvline(x=weighted_mean_estimated_hours, linewidth=2, color = 'm')
-    plt.axvline(x=mean_estimated_hours, linewidth=2, color = 'g')
-    plt.annotate('weighted mean %s' % weighted_mean_estimated_hours,
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    col = ax.scatter(matrix[:,2], matrix[:,1], s=3000*weights, edgecolors='none', picker=True)
+    ax.axvline(x=weighted_mean_estimated_hours, linewidth=2, color = 'r')
+    ax.axvline(x=mean_estimated_hours, linewidth=2, color = 'g')
+    ax.annotate('weighted mean %s' % weighted_mean_estimated_hours,
                 xy=(np.max(matrix[:,2]),np.max(matrix[:,1])),
-                xytext=(-10, 0), ha='right', color = 'm',
+                xytext=(-10, 0), ha='right', color = 'r',
                 textcoords='offset points')
-    plt.annotate('mean %s' % mean_estimated_hours,
+    ax.annotate('mean %s' % mean_estimated_hours,
                 xy=(np.max(matrix[:,2]),np.max(matrix[:,1])),
                 xytext=(-10, -20), ha='right', color = 'g',
                 textcoords='offset points')
-    plt.grid()
+    def onpick(event):
+        ind = event.ind
+        print ('Date and time: %s\nPercentage of battery discharge: %d\nDuration of period: %f\nEstimated battery life: %f\n\n' % (datetimes[ind][0],np.take(matrix[:,1], ind),np.take(matrix[:,0], ind),np.take(matrix[:,2], ind)))
+    fig.canvas.mpl_connect('pick_event', onpick)
+    ax.grid()
     plt.title(r'Battery history usage')
     plt.xlabel('Estimated hours')
     plt.ylabel('Battery percentage used')
     plt.show()
+
+
 # pmset -g log|grep -e " Sleep  " -e " Wake  " -e "Using AC" -e "Using Batt"
 
 if __name__ == '__main__':
     events = get_battery_change_events()
-    plot_data(events)
+    discharge_periods, matrix = get_data_matrix(events)
+    plot_data(discharge_periods, matrix)
