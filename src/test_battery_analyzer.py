@@ -2,7 +2,7 @@
 
 import unittest
 import datetime
-from battery_analyzer import process_event, Event, states, call_pmset, get_data_matrix, compute_weights
+from battery_analyzer import process_event, Event, states, call_pmset, get_data_matrix
 import numpy as np
 
 
@@ -104,12 +104,8 @@ class BatteryAnalyzerTestCase(unittest.TestCase):
             states['suspended'],
             60))
         matrix_ok = np.matrix('1.88444444 29 6.49808429;  1.66194444 26 6.39209402')
-        matrix_generated = get_data_matrix(events)
+        discharge_periods, matrix_generated = get_data_matrix(events)
         self.assertTrue(np.allclose(matrix_ok, matrix_generated))
-
-    def test_compute_weights(self):
-        matrix_ok = np.matrix('1.88444444 29 6.49808429 0.50300289;  1.66194444 26 6.39209402 0.44361237 ; 0.2 5 7 0.05338474')
-        self.assertTrue(np.allclose(matrix_ok, compute_weights(matrix_ok[:,0:3])))
 
 if __name__ == '__main__':
     unittest.main()
