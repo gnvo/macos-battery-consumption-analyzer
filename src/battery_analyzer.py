@@ -1,114 +1,89 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 import os
 import multiprocessing
 import re
-import datetime
 import numpy as np
 import matplotlib.pyplot as plt
+from dateutil import parser
 
+re_line_splitter = re.compile(r'(\d{4}[-]\d{2}[-]\d{2}\s\d{2}[:]\d{2}[:]\d{2}\s\S+)\s+(wake|sleep|assertions)\s+.*using (batt|ac).*Charge:[ ]*(\d+).*', flags = re.IGNORECASE)
 
-re_line_splitter = re.compile(r'(\d{4}[-]\d{2}[-]\d{2}\s\d{2}[:]\d{2}[:]\d{2}\s\S+)\s+(\S+)\s+(.*)')
-re_extract_charge = re.compile(r'.*Charge:[ ]*(\d+).*')
-datetime_format = "%Y-%m-%d %H:%M:%S %z"
-states = {'discharging' : "Discharging", 'charging': "Charging", 'suspended': "Suspended"}
-class Event(object):
-    def __init__(self, timestamp, state, charge):
-        self.timestamp = timestamp
-        self.state = state
-        self.charge = charge
-    def __repr__(self):
-        return "%s, %s: %s" % (self.timestamp, self.state, self.charge)
-    def __str__(self):
-        return "%s, %s: %s" % (self.timestamp, self.state, self.charge)
-    def __eq__(self, other):
-        return type(other) == Event and \
-               self.timestamp == other.timestamp and \
-               self.state == other.state and \
-               self.charge == other.charge
-
-class DischargePeriod(object):
-    def __init__(self, start, end):
-        self.start = start
-        self.end = end
+class DischargeEvent(object):
+    def __init__(self, start_date_time, start_charge):
+        self.start_date_time = start_date_time
+        self.start_charge = start_charge
+        self.end_date_time = None
+        self.end_charge = None
+        self.__elapsed_hours = None
+        self.__diff_charge = None
+        self.__estimated_hours = None
     def diff_charge(self):
-        return self.start.charge - self.end.charge
-    def diff_time(self):
-        return self.end.timestamp - self.start.timestamp
+        if self.__diff_charge == None and self.start_charge and self.end_charge:
+            self.__diff_charge = self.start_charge - self.end_charge
+        return self.__diff_charge
     def elapsed_hours(self):
-        return self.diff_time().seconds / 60 / 60
-    def elapsed_time(self):
-        m, s = divmod(self.diff_time().seconds, 60)
-        h, m = divmod(m, 60)
-        return "%d:%02d:%02d" % (h, m, s)
+        if self.__elapsed_hours == None and self.end_date_time and self.start_date_time:
+            self.__elapsed_hours = float((self.end_date_time - self.start_date_time).seconds) / 60 / 60
+        return self.__elapsed_hours
     def estimated_hours(self):
-        return 100 * self.diff_time().seconds / self.diff_charge() / 60 / 60
-    def start_timestamp_as_utc(self):
-        return self.start.timestamp.astimezone(tz=datetime.timezone.utc).timestamp()
+        if self.__estimated_hours == None and self.elapsed_hours() and self.diff_charge():
+            self.__estimated_hours = 100 * (self.elapsed_hours() / self.diff_charge())
+        return self.__estimated_hours
     def __str__(self):
+        return "start_date_time: " + str(self.start_date_time) + "\n" + \
+               "start_charge: " + str(self.start_charge) + "\n" + \
+               "end_date_time: " + str(self.end_date_time) + "\n" + \
+               "end_charge: " + str(self.end_charge) + "\n" + \
+               "elapsed_hours: " + str(self.elapsed_hours()) + "\n" + \
+               "diff_charge: " + str(self.diff_charge()) + "\n" + \
+               "estimated_hours: " + str(self.estimated_hours())
         # return start.__str__() + "\n" + end.__str__() + "\nElapsed time: %s, estimate hours: %f" % (discharge_period.elapsed_time(), discharge_period.estimated_hours())
-        return "%f,%d,%f,%f" % (self.start_timestamp_as_utc(),self.diff_charge(), self.elapsed_hours(), self.estimated_hours())
+        # return "%f,%d,%f,%f" % (self.start_timestamp_as_utc(),self.diff_charge(), self.elapsed_hours(), self.estimated_hours())
 
 def call_pmset():
     return os.popen("pmset -g log").read()
 
-def process_event(line):
+def on_battery(current_discharge_event, start_date_time, start_charge):
+    if current_discharge_event == None:
+        current_discharge_event = DischargeEvent(start_date_time, start_charge)
+    return current_discharge_event
+
+def on_ac(current_discharge_event, end_date_time, end_charge):
+    if current_discharge_event:
+        current_discharge_event.end_date_time = end_date_time
+        current_discharge_event.end_charge = end_charge
+        if current_discharge_event.diff_charge() <= 0: # if no discharge happened, ignore the discharge event
+            current_discharge_event = None
+    return current_discharge_event
+
+state_functions = {'wake':      {'batt': on_battery, 'ac': on_ac},
+                   'sleep':     {'batt': on_ac,      'ac': on_ac},
+                   'assertions':{'batt': on_battery, 'ac': on_ac}}
+
+def process_logevent(line, current_discharge_event):
     m = re_line_splitter.match(line)
     if m:
-        event_type = m.group(2)
-        description = m.group(3)
-        state = None
-        if event_type == "Wake" and "Using BATT" in description or \
-          event_type == "Assertions" and "using batt" in description.lower():
-            state = states['discharging']
-        elif event_type == "Sleep" and "using batt" in description.lower():
-            state = states['suspended']
-        elif event_type == "Assertions" and "using ac" in description.lower() or \
-          event_type in ["Wake","Sleep"] and "using ac" in description.lower():
-           state = states['charging']
-        if state:
-            m2 = re_extract_charge.match(description)
-            if m2:
-                timestamp = datetime.datetime.strptime(m.group(1), datetime_format)
-                charge = int(m2.group(1))
-                return Event(timestamp, state, charge)
-            else:
-                return line
-    return None
+        event_group = m.group(2).lower()
+        description_group = m.group(3).lower()
+        date_time = parser.parse(m.group(1))
+        charge = int(m.group(4))
+        current_discharge_event = state_functions[event_group][description_group](current_discharge_event, date_time, charge)
+    return current_discharge_event
 
-def get_battery_change_events():
-    power_eventlog = call_pmset()
-    array_power_eventlog = power_eventlog.splitlines()
-    parsed_events_and_nones = list(map(lambda line: process_event(line), array_power_eventlog))
-    return list(filter(lambda pean: type(pean) == Event, parsed_events_and_nones))
-
-# TODO: reduce the number of loops through all the logdata.
 def get_data_matrix(events):
-    discharge_periods = list()
-    discharging = False
-    start = None
-    for e in events:
-        if e.state == states['discharging']:
-            if not discharging:
-                start = e
-                discharging = True
-        elif start:
-            end = e
-            discharge_period = DischargePeriod(start, end)
-            if discharge_period.diff_charge() > 0:
-                discharge_periods.append(discharge_period)
-            start = None
-            discharging = False
-    number_of_events = len(discharge_periods)
-    matrix = np.zeros(shape=(number_of_events,3))
-    for i, dp in enumerate(discharge_periods):
-        matrix[i, 0] = dp.elapsed_hours()
-        matrix[i, 1] = dp.diff_charge()
-        matrix[i, 2] = dp.estimated_hours()
-    return discharge_periods, matrix
+    discharge_events = list()
+    current_discharge_event = None
+    for line in events:
+        current_discharge_event = process_logevent(line, current_discharge_event)
+        if current_discharge_event and current_discharge_event.end_date_time:
+            discharge_events.append(current_discharge_event)
+            current_discharge_event = None
+    matrix = np.asarray(map(lambda de: [de.elapsed_hours(), de.diff_charge(), de.estimated_hours()], discharge_events))
+    return discharge_events, matrix
 
-def plot_data(discharge_periods, matrix):
-    datetimes = np.asarray(list(map(lambda dp: dp.start.timestamp, discharge_periods))) #TODO:remove this hacky line!!
+def plot_data(discharge_events, matrix):
+    datetimes = map(lambda de: de.start_date_time, discharge_events)#Still not sure why this is necessary
     total_elapsed_hours = np.sum(matrix[:,0])
     weights = matrix[:,0]/total_elapsed_hours
     weighted_mean_estimated_hours = np.sum(matrix[:,2] * weights)
@@ -127,8 +102,8 @@ def plot_data(discharge_periods, matrix):
                 xytext=(-10, -20), ha='right', color = 'g',
                 textcoords='offset points')
     def onpick(event):
-        ind = event.ind
-        print ('Date and time: %s\nPercentage of battery discharge: %d\nDuration of period: %f\nEstimated battery life: %f\n\n' % (datetimes[ind][0],np.take(matrix[:,1], ind),np.take(matrix[:,0], ind),np.take(matrix[:,2], ind)))
+        ind = event.ind[0]
+        print ('On %s, %d%% battery discharged over: %f hours, at the same rate the full charge would have lasted: %f\n' % (discharge_events[ind].start_date_time,np.take(matrix[:,1], ind),np.take(matrix[:,0], ind),np.take(matrix[:,2], ind)))
     fig.canvas.mpl_connect('pick_event', onpick)
     ax.grid()
     plt.title(r'Battery history usage')
@@ -136,10 +111,10 @@ def plot_data(discharge_periods, matrix):
     plt.ylabel('Battery percentage used')
     plt.show()
 
-
 # pmset -g log|grep -e " Sleep  " -e " Wake  " -e "Using AC" -e "Using Batt"
 
 if __name__ == '__main__':
-    events = get_battery_change_events()
-    discharge_periods, matrix = get_data_matrix(events)
-    plot_data(discharge_periods, matrix)
+    power_eventlog = call_pmset()
+    events = power_eventlog.splitlines()
+    discharge_events, matrix = get_data_matrix(events)
+    plot_data(discharge_events,  matrix)
