@@ -3,6 +3,7 @@
 import os
 import multiprocessing
 import re
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 from dateutil import parser
@@ -84,31 +85,39 @@ def get_data_matrix(events):
 
 def plot_data(discharge_events, matrix):
     datetimes = map(lambda de: de.start_date_time, discharge_events)#Still not sure why this is necessary
+    timestamps = np.asarray(map(lambda de: time.mktime(de.start_date_time.timetuple()), discharge_events))
+    timestamps_from_cero = np.subtract(timestamps,timestamps.min())
+    timestamps_dim = timestamps_from_cero / timestamps_from_cero.max()
     total_elapsed_hours = np.sum(matrix[:,0])
     weights = matrix[:,0]/total_elapsed_hours
     weighted_mean_estimated_hours = np.sum(matrix[:,2] * weights)
     mean_estimated_hours = np.mean(matrix[:,2])
     fig = plt.figure()
     ax = fig.add_subplot(111)
-    col = ax.scatter(matrix[:,2], matrix[:,1], s=3000*weights, edgecolors='none', picker=True)
-    ax.axvline(x=weighted_mean_estimated_hours, linewidth=2, color = 'r')
-    ax.axvline(x=mean_estimated_hours, linewidth=2, color = 'g')
-    ax.annotate('weighted mean %s' % weighted_mean_estimated_hours,
-                xy=(np.max(matrix[:,2]),np.max(matrix[:,1])),
-                xytext=(-10, 0), ha='right', color = 'r',
-                textcoords='offset points')
-    ax.annotate('mean %s' % mean_estimated_hours,
-                xy=(np.max(matrix[:,2]),np.max(matrix[:,1])),
-                xytext=(-10, -20), ha='right', color = 'g',
-                textcoords='offset points')
+    col = ax.scatter(matrix[:,1], matrix[:,2], s=3000*weights, c=timestamps_dim * 256, cmap=plt.cm.get_cmap('winter'), edgecolors='none', picker=True)
+    ax.axhline(y=weighted_mean_estimated_hours, linewidth=2, color = 'm')
+    ax.axhline(y=mean_estimated_hours, linewidth=2, color = 'y')
+    mesg_means = 'mean (yellow) %.1f hours\nweighted mean (magenta) %.1f hours' % (mean_estimated_hours, weighted_mean_estimated_hours)
+    txt = ax.text(.98, .98, mesg_means,
+            horizontalalignment='right',
+            verticalalignment='top',
+            transform=ax.transAxes,
+            backgroundcolor='w')
     def onpick(event):
         ind = event.ind[0]
-        print ('On %s, %d%% battery discharged over: %f hours, at the same rate the full charge would have lasted: %f\n' % (discharge_events[ind].start_date_time,np.take(matrix[:,1], ind),np.take(matrix[:,0], ind),np.take(matrix[:,2], ind)))
+        txt.set_text(mesg_means + '\n\n%s\npercentage discharged: %d%%\ndischarged: %.1f hours\nestimated battery life: %.1f hours' % (discharge_events[ind].start_date_time,np.take(matrix[:,1], ind),np.take(matrix[:,0], ind),np.take(matrix[:,2], ind)))
+        plt.draw()
+    def onrelease(event):
+        txt.set_text(mesg_means)
+        plt.draw()
+    fig.canvas.mpl_connect('button_release_event', onrelease)
     fig.canvas.mpl_connect('pick_event', onpick)
+    cbar = plt.colorbar(mappable=col, ax=ax, ticks=[0, 256])
+    cbar.ax.set_yticklabels(['Oldest event', 'Newest event'])
     ax.grid()
     plt.title(r'Battery history usage')
-    plt.xlabel('Estimated hours')
-    plt.ylabel('Battery percentage used')
+    plt.ylabel('Estimated battery life in hours')
+    plt.xlabel('Battery percentage used')
     plt.show()
 
 # pmset -g log|grep -e " Sleep  " -e " Wake  " -e "Using AC" -e "Using Batt"
