@@ -7,4 +7,4 @@ This is a battery consumption analyzer for MacOS to be run from the console with
 * matplotlib
 
 ## Current state
-![alt tag](https://raw.githubusercontent.com/gnvo/macos-battery-consumption-analyzer/master/docs/images/0.1%20screenshot.png)
+![alt tag](https://raw.githubusercontent.com/gnvo/macos-battery-consumption-analyzer/master/docs/images/screenshot.png)
