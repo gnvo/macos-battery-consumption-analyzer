@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import os
-import multiprocessing
 import re
 import time
 import numpy as np
