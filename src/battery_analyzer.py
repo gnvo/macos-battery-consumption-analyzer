@@ -5,6 +5,7 @@ import re
 import time
 import numpy as np
 import matplotlib.pyplot as plt
+from datetime import datetime
 from dateutil import parser
 
 re_line_splitter = re.compile(r'(\d{4}[-]\d{2}[-]\d{2}\s\d{2}[:]\d{2}[:]\d{2}\s\S+)\s+(wake|sleep|assertions)\s+.*using (batt|ac).*Charge:[ ]*(\d+).*', flags = re.IGNORECASE)
@@ -12,7 +13,7 @@ re_line_splitter = re.compile(r'(\d{4}[-]\d{2}[-]\d{2}\s\d{2}[:]\d{2}[:]\d{2}\s\
 
 class DischargeEvent(object):
     def __init__(self, start_date_time, start_charge):
-        self.start_date_time = start_date_time
+        self.start_date_time = start_date_time.replace(tzinfo=None)
         self.start_charge = start_charge
         self.end_date_time = None
         self.end_charge = None
@@ -57,7 +58,7 @@ def on_battery(current_discharge_event, start_date_time, start_charge):
 
 def on_ac(current_discharge_event, end_date_time, end_charge):
     if current_discharge_event:
-        current_discharge_event.end_date_time = end_date_time
+        current_discharge_event.end_date_time = end_date_time.replace(tzinfo=None)
         current_discharge_event.end_charge = end_charge
         if current_discharge_event.diff_charge() > 0: # if no discharge happened, ignore the discharge event
             current_discharge_event.is_complete = True
@@ -78,6 +79,14 @@ def process_logevent(line, current_discharge_event):
         charge = int(m.group(4))
         current_discharge_event = state_functions[event_group][description_group](current_discharge_event, date_time, charge)
     return current_discharge_event
+
+def add_last_discharge_event_if_still_discharging(discharge_events, current_discharge_event):
+    if current_discharge_event and not current_discharge_event.end_date_time:
+        charge = int(os.popen("pmset -g batt | grep '%' | sed 's/.*[^0-9]\([0-9]\{1,3\}\)[%].*/\\1/g'").read())
+        date_time = datetime.now()
+        current_discharge_event = state_functions['wake']['ac'](current_discharge_event, date_time, charge)
+        discharge_events.append(current_discharge_event)
+    return discharge_events
 
 def get_data_matrix(events):
     discharge_events = list()
