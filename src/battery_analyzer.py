@@ -80,11 +80,13 @@ def get_data_matrix(events):
         if current_discharge_event and current_discharge_event.end_date_time:
             discharge_events.append(current_discharge_event)
             current_discharge_event = None
+    discharge_events = add_last_discharge_event_if_still_discharging(discharge_events, current_discharge_event)
     matrix = np.asarray(map(lambda de: [de.elapsed_hours(), de.diff_charge(), de.estimated_hours()], discharge_events))
     return discharge_events, matrix
 
 def plot_data(discharge_events, matrix):
-    datetimes = map(lambda de: de.start_date_time, discharge_events)#Still not sure why this is necessary
+    first_date = discharge_events[1].start_date_time.date()
+    last_date = discharge_events[-1].start_date_time.date()
     timestamps = np.asarray(map(lambda de: time.mktime(de.start_date_time.timetuple()), discharge_events))
     timestamps_from_cero = np.subtract(timestamps,timestamps.min())
     timestamps_dim = timestamps_from_cero / timestamps_from_cero.max()
@@ -113,7 +115,7 @@ def plot_data(discharge_events, matrix):
     fig.canvas.mpl_connect('button_release_event', onrelease)
     fig.canvas.mpl_connect('pick_event', onpick)
     cbar = plt.colorbar(mappable=col, ax=ax, ticks=[0, 256])
-    cbar.ax.set_yticklabels(['Oldest event', 'Newest event'])
+    cbar.ax.set_yticklabels([first_date, last_date])
     ax.grid()
     plt.title(r'Battery history usage')
     plt.ylabel('Estimated battery life in hours')
