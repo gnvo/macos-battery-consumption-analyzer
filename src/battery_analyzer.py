@@ -81,7 +81,7 @@ def process_logevent(line, current_discharge_event):
     return current_discharge_event
 
 def add_last_discharge_event_if_still_discharging(discharge_events, current_discharge_event):
-    if current_discharge_event and not current_discharge_event.end_date_time:
+    if current_discharge_event and not current_discharge_event.is_complete:
         charge = int(os.popen("pmset -g batt | grep '%' | sed 's/.*[^0-9]\([0-9]\{1,3\}\)[%].*/\\1/g'").read())
         date_time = datetime.now()
         current_discharge_event = state_functions['wake']['ac'](current_discharge_event, date_time, charge)
