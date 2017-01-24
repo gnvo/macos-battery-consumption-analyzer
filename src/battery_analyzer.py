@@ -19,6 +19,7 @@ class DischargeEvent(object):
         self.__elapsed_hours = None
         self.__diff_charge = None
         self.__estimated_hours = None
+        self.is_complete = False
 
     def diff_charge(self):
         if self.__diff_charge is None and self.start_charge and self.end_charge:
@@ -58,7 +59,9 @@ def on_ac(current_discharge_event, end_date_time, end_charge):
     if current_discharge_event:
         current_discharge_event.end_date_time = end_date_time
         current_discharge_event.end_charge = end_charge
-        if current_discharge_event.diff_charge() <= 0: # if no discharge happened, ignore the discharge event
+        if current_discharge_event.diff_charge() > 0: # if no discharge happened, ignore the discharge event
+            current_discharge_event.is_complete = True
+        else:
             current_discharge_event = None
     return current_discharge_event
 
@@ -81,7 +84,7 @@ def get_data_matrix(events):
     current_discharge_event = None
     for line in events:
         current_discharge_event = process_logevent(line, current_discharge_event)
-        if current_discharge_event and current_discharge_event.end_date_time:
+        if current_discharge_event and current_discharge_event.is_complete:
             discharge_events.append(current_discharge_event)
             current_discharge_event = None
     discharge_events = add_last_discharge_event_if_still_discharging(discharge_events, current_discharge_event)
