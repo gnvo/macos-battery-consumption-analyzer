@@ -9,6 +9,7 @@ from dateutil import parser
 
 re_line_splitter = re.compile(r'(\d{4}[-]\d{2}[-]\d{2}\s\d{2}[:]\d{2}[:]\d{2}\s\S+)\s+(wake|sleep|assertions)\s+.*using (batt|ac).*Charge:[ ]*(\d+).*', flags = re.IGNORECASE)
 
+
 class DischargeEvent(object):
     def __init__(self, start_date_time, start_charge):
         self.start_date_time = start_date_time
@@ -18,18 +19,22 @@ class DischargeEvent(object):
         self.__elapsed_hours = None
         self.__diff_charge = None
         self.__estimated_hours = None
+
     def diff_charge(self):
-        if self.__diff_charge == None and self.start_charge and self.end_charge:
+        if self.__diff_charge is None and self.start_charge and self.end_charge:
             self.__diff_charge = self.start_charge - self.end_charge
         return self.__diff_charge
+
     def elapsed_hours(self):
-        if self.__elapsed_hours == None and self.end_date_time and self.start_date_time:
+        if self.__elapsed_hours is None and self.end_date_time and self.start_date_time:
             self.__elapsed_hours = float((self.end_date_time - self.start_date_time).seconds) / 60 / 60
         return self.__elapsed_hours
+
     def estimated_hours(self):
-        if self.__estimated_hours == None and self.elapsed_hours() and self.diff_charge():
+        if self.__estimated_hours is None and self.elapsed_hours() and self.diff_charge():
             self.__estimated_hours = 100 * (self.elapsed_hours() / self.diff_charge())
         return self.__estimated_hours
+
     def __str__(self):
         return "start_date_time: " + str(self.start_date_time) + "\n" + \
                "start_charge: " + str(self.start_charge) + "\n" + \
@@ -45,7 +50,7 @@ def call_pmset():
     return os.popen("pmset -g log").read()
 
 def on_battery(current_discharge_event, start_date_time, start_charge):
-    if current_discharge_event == None:
+    if current_discharge_event is None:
         current_discharge_event = DischargeEvent(start_date_time, start_charge)
     return current_discharge_event
 
