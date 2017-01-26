@@ -85,7 +85,8 @@ def add_last_discharge_event_if_still_discharging(discharge_events, current_disc
         charge = int(os.popen("pmset -g batt | grep '%' | sed 's/.*[^0-9]\([0-9]\{1,3\}\)[%].*/\\1/g'").read())
         date_time = datetime.now()
         current_discharge_event = state_functions['wake']['ac'](current_discharge_event, date_time, charge)
-        discharge_events.append(current_discharge_event)
+        if current_discharge_event and current_discharge_event.is_complete:
+            discharge_events.append(current_discharge_event)
     return discharge_events
 
 def get_data_matrix(events):
